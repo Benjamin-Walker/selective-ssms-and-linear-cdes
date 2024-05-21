@@ -1,5 +1,5 @@
 # Project Specific
-data/*.npy
+data_dir/*.npy
 outputs/
 
 # Byte-compiled / optimized / DLL files
