@@ -8,7 +8,9 @@ Theoretical Foundations of Deep Selective State-Space Models: The experiments
 ```angular2html
 conda create -n jax_cde python=3.11
 conda activate jax_cde
-conda install pre-commit
+conda install pre-commit numpy scikit-learn matplotlib
+pip install -U "jax[cuda12]"
+pip install diffrax signax==0.1.1
 pre-commit install
 ```
 
