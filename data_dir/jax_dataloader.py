@@ -1,16 +1,17 @@
 import jax.numpy as jnp
 import jax.random as jr
 import numpy as np
+import pandas as pd
 
 
 class InMemoryDataloader:
-    def __init__(self, num_train, num_test, train_x, train_y, test_x, test_y):
+    def __init__(self, num_train, num_val, train_x, train_y, val_x, val_y):
         self.num_train = num_train
-        self.num_test = num_test
+        self.num_val = num_val
         self.train_x = train_x
         self.train_y = train_y
-        self.test_x = test_x
-        self.test_y = test_y
+        self.val_x = val_x
+        self.val_y = val_y
 
     def loop(self, batch_size, data, labels, *, key):
         size = data.shape[0]
@@ -40,11 +41,11 @@ class InMemoryDataloader:
         else:
             return self.loop(batch_size, self.train_x, self.train_y, key=key)
 
-    def test_loop(self, batch_size, epoch=False, *, key):
+    def val_loop(self, batch_size, epoch=False, *, key):
         if epoch:
-            return self.loop_epoch(batch_size, self.test_x, self.test_y)
+            return self.loop_epoch(batch_size, self.val_x, self.val_y)
         else:
-            return self.loop(batch_size, self.test_x, self.test_y, key=key)
+            return self.loop(batch_size, self.val_x, self.val_y, key=key)
 
 
 class ToyDataloader(InMemoryDataloader):
@@ -56,14 +57,40 @@ class ToyDataloader(InMemoryDataloader):
         N = data.shape[0]
         train_x = data[: int(0.8 * N)]
         train_y = labels[: int(0.8 * N)]
-        test_x = data[int(0.8 * N) :]
-        test_y = labels[int(0.8 * N) :]
+        val_x = data[int(0.8 * N) :]
+        val_y = labels[int(0.8 * N) :]
 
         super().__init__(
             train_x.shape[0],
-            test_x.shape[0],
+            val_x.shape[0],
             train_x,
             train_y,
-            test_x,
-            test_y,
+            val_x,
+            val_y,
+        )
+
+
+class A5Dataloader(InMemoryDataloader):
+    def __init__(self, length, train_split, key):
+        df = pd.read_csv(f"data_dir/illusion/A5={length}.csv")
+        input_array = df["input"].str.split(" ", expand=True).astype(int).to_numpy()
+        target_array = df["target"].str.split(" ", expand=True).astype(int).to_numpy()
+        data = jnp.array(input_array)
+        labels = jnp.array(target_array)
+        N = data.shape[0]
+        shuffle_idx = jr.permutation(key, jnp.arange(N), independent=True)
+        data = data[shuffle_idx]
+        labels = labels[shuffle_idx]
+        train_x = data[: int(train_split * N)]
+        train_y = labels[: int(train_split * N)]
+        val_x = data[int(train_split * N) :]
+        val_y = labels[int(train_split * N) :]
+
+        super().__init__(
+            train_x.shape[0],
+            val_x.shape[0],
+            train_x,
+            train_y,
+            val_x,
+            val_y,
         )
