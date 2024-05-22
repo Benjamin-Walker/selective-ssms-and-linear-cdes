@@ -8,7 +8,3 @@ combine-as-imports = true
 lines-after-imports = 2
 extra-standard-library = ["typing_extensions"]
 order-by-type = false
-
-[tool.pyright]
-reportIncompatibleMethodOverride = true
-include = ["equinox_models"]
