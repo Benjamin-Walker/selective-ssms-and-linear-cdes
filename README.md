@@ -34,6 +34,8 @@ using the Adam optimizer with a learning rate of 3e-5 and a batch size of 32.
 
 ## Plotting
 
+Experimental results can be plotted by running `plot.py'.
+
 
 ## Python Environments
 
