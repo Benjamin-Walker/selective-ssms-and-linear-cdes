@@ -14,13 +14,24 @@ lines = []
 labels = []
 
 # Define a list of markers
-markers = ["o", "s", "D", "^", "v", "p", "P", "*", "X"]
+markers = ["o", "s", "D", "^", "p", "v", "P", "*", "X"]
+CB_color_cycle = [
+    "#377eb8",
+    "#ff7f00",
+    "#4daf4a",
+    "#a65628",
+    "#984ea3",
+    "#999999",
+    "#e41a1c",
+    "#dede00",
+]
 
-for i, dim in enumerate([2]):
+for i, dim in enumerate([2, 3]):
     labels_data = np.load(f"data/labels_{dim}.npy")
     rmse_predicting_zero = np.mean(labels_data**2) ** 0.5
-    rmse_linear_cde = np.load("outputs/lin_cde_mse_2.npy") ** 0.5
+    rmse_linear_cde = np.load(f"outputs/lin_cde_mse_{dim}.npy") ** 0.5
     marker_index = 0
+    color_index = 0
     for model_name in ["mamba", "s5"]:
         if model_name == "mamba":
             c_choices = [True]
@@ -29,7 +40,7 @@ for i, dim in enumerate([2]):
         for c_dependent in c_choices:
             for depth in [1, 2]:
                 if depth == 2:
-                    nonlinear_choices = [True, False]
+                    nonlinear_choices = [False, True]
                 else:
                     nonlinear_choices = [False]
                 for nonlinear in nonlinear_choices:
@@ -45,29 +56,34 @@ for i, dim in enumerate([2]):
                     if model_name == "s5":
                         if depth == 2:
                             if nonlinear:
-                                mark_every = [10, -1]
+                                mark_every = [12, -1]
                             else:
-                                mark_every = [20, -1]
+                                mark_every = [22, -1]
                         else:
-                            mark_every = [10, 90]
+                            mark_every = [12, 90]
                     else:
-                        mark_every = [10, -1]
+                        mark_every = [12, -1]
                     (line,) = axs[i].semilogy(
                         steps,
                         rmse,
+                        color=CB_color_cycle[color_index],
                         marker=markers[marker_index],
                         markevery=mark_every,
                         markersize=8,
                     )
-                    lines.append(line)
-                    labels.append(label)
+                    if dim == 2:
+                        lines.append(line)
+                        labels.append(label)
                     marker_index = (marker_index + 1) % len(markers)
+                    color_index = (color_index + 1) % len(CB_color_cycle)
     line = axs[i].hlines(rmse_predicting_zero, 0, 1e6, color="black", linestyle="--")
-    lines.append(line)
-    labels.append("Predicting Zero")
+    if dim == 2:
+        lines.append(line)
+        labels.append("Predicting Zero")
     line = axs[i].hlines(rmse_linear_cde, 0, 1e6, color="red", linestyle="--")
-    lines.append(line)
-    labels.append("Linear CDE")
+    if dim == 2:
+        lines.append(line)
+        labels.append("Random Linear CDE")
     axs[i].set_ylim([1e-4, 0.15])
     axs[i].set_xlabel("Training Steps")
     axs[i].set_ylabel("Validation RMSE")
