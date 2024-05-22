@@ -74,7 +74,7 @@ class MambaRecurrence(nn.Module):
         self.A_log = nn.Parameter(A_log)
         self.c_dependent = c_dependent
         if not self.c_dependent:
-            self.c = nn.Parameter(
+            self.C = nn.Parameter(
                 torch.randn(
                     self.d_state,
                 )
