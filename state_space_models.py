@@ -4,6 +4,7 @@ import math
 import os
 
 import numpy as np
+import pandas as pd
 import torch
 import torch.nn as nn
 from einops import rearrange, repeat
@@ -284,6 +285,44 @@ class ToyDataset(torch.utils.data.Dataset):
         return self.data[idx], self.labels[idx]
 
 
+class A5Dataset(torch.utils.data.Dataset):
+    def __init__(self, length, train=True, train_split=0.8, seed=None):
+        super().__init__()
+        # Load the data
+        df = pd.read_csv(f"data_dir/illusion/A5={length}.csv")
+        input_array = df["input"].str.split(" ", expand=True).astype(int).to_numpy()
+        target_array = df["target"].str.split(" ", expand=True).astype(int).to_numpy()
+
+        # Convert to tensors
+        data = torch.tensor(input_array, dtype=torch.float32)
+        labels = torch.tensor(target_array, dtype=torch.float32)
+
+        # Shuffle the data
+        N = data.shape[0]
+        if seed is not None:
+            torch.manual_seed(seed)
+        shuffle_idx = torch.randperm(N)
+        data = data[shuffle_idx]
+        labels = labels[shuffle_idx]
+
+        # Split the data into training and test sets
+        split_idx = int(train_split * N)
+        if train:
+            self.data = data[:split_idx]
+            self.labels = labels[:split_idx]
+        else:
+            self.data = data[split_idx:]
+            self.labels = labels[split_idx:]
+
+        self.length = len(self.data)
+
+    def __len__(self):
+        return self.length
+
+    def __getitem__(self, idx):
+        return self.data[idx], self.labels[idx]
+
+
 if __name__ == "__main__":
 
     batch = 32
@@ -319,7 +358,7 @@ if __name__ == "__main__":
                     all_rmse = []
                     steps = []
                     step = 0
-                    for _ in range(5):
+                    for _ in range(400):
                         for X, y in dataloader:
                             optimizer.zero_grad()
 
@@ -331,7 +370,7 @@ if __name__ == "__main__":
                             loss.backward()
                             optimizer.step()
 
-                            if step % 5000 == 0:
+                            if step % 10000 == 0:
 
                                 total_mse = 0.0
                                 model.eval()
