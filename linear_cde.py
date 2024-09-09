@@ -7,7 +7,7 @@ import jax.random as jr
 import numpy as np
 import sklearn.linear_model
 
-from data.jax_dataloader import ToyDataloader
+from data_dir.jax_dataloader import ToyDataloader
 
 
 class LinearCDE:
@@ -129,22 +129,23 @@ if __name__ == "__main__":
     hidden_dim = 256
     label_dim = 1
     batch_size = 4000
-    for data_dim in [2, 3]:
-        omega_dim = data_dim + 1
-        xi_dim = data_dim + 1
-        model = LinearCDE(
-            hidden_dim, data_dim, omega_dim, xi_dim, label_dim, key=model_key
-        )
-        dataset = ToyDataloader(num=data_dim)
-        mse = train_linear(
-            model,
-            dataset,
-            num_train=dataset.num_train,
-            num_test=dataset.num_test,
-            label_dim=label_dim,
-            batch_size=batch_size,
-            key=train_key,
-        )
-        mse = np.array(mse)
-        np.save(f"outputs/lin_cde_mse_{data_dim}.npy", mse)
-        print(f"Data dim: {data_dim}, MSE: {mse}")
+    for run in range(5):
+        for data_dim in [2, 3]:
+            omega_dim = data_dim + 1
+            xi_dim = data_dim + 1
+            model = LinearCDE(
+                hidden_dim, data_dim, omega_dim, xi_dim, label_dim, key=model_key
+            )
+            dataset = ToyDataloader(num=data_dim)
+            mse = train_linear(
+                model,
+                dataset,
+                num_train=dataset.num_train,
+                num_test=dataset.num_test,
+                label_dim=label_dim,
+                batch_size=batch_size,
+                key=train_key,
+            )
+            mse = np.array(mse)
+            np.save(f"outputs/lin_cde_mse_{data_dim}_run_{run}.npy", mse)
+            print(f"Data dim: {data_dim}, MSE: {mse}")
