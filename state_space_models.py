@@ -1,6 +1,7 @@
-# Copyright (c) 2023, Tri Dao, Albert Gu.
+# S4 and Mamba recurrence adapted from https://github.com/state-spaces/mamba
 
 import math
+import os
 
 import numpy as np
 import torch
@@ -10,12 +11,99 @@ from mamba_ssm.ops.selective_scan_interface import selective_scan_fn
 from s5 import S5
 
 
+class S4Recurrence(nn.Module):
+    def __init__(
+        self,
+        d_model,
+        d_state=16,
+        dt_rank="auto",
+        dt_min=0.001,
+        dt_max=0.1,
+        dt_init_floor=1e-4,
+        device=None,
+    ):
+        super().__init__()
+
+        if device is None:
+            if torch.cuda.is_available():
+                self.device = torch.device("cuda")
+            else:
+                self.device = torch.device("cpu")
+        else:
+            self.device = device
+
+        self.d_model = d_model
+        self.d_state = d_state
+        self.dt_rank = math.ceil(self.d_model / 16) if dt_rank == "auto" else dt_rank
+
+        self.activation = "silu"
+        self.act = nn.SiLU()
+
+        dt = torch.exp(
+            torch.rand(self.d_model, device=self.device)
+            * (math.log(dt_max) - math.log(dt_min))
+            + math.log(dt_min)
+        ).clamp(min=dt_init_floor)
+        dt_log = torch.log(dt)
+        self.log_dt = nn.Parameter(dt_log)
+
+        # S4D-Lin initialization
+        A_real = (
+            0.5
+            * torch.ones(self.d_model, self.d_state, device=self.device).contiguous()
+        )
+        A_imag = repeat(
+            torch.pi * torch.arange(1, self.d_state + 1, device=self.device),
+            "n -> d n",
+            d=self.d_model,
+        ).contiguous()
+        A_real_log = torch.log(A_real)
+        self.A_real_log = nn.Parameter(A_real_log)
+        self.A_imag = nn.Parameter(A_imag)
+        B = nn.init.xavier_normal_(
+            torch.empty(
+                self.d_model, self.d_state, device=self.device, dtype=torch.complex64
+            )
+        )
+        C = nn.init.xavier_normal_(
+            torch.empty(
+                self.d_model, self.d_state, device=self.device, dtype=torch.complex64
+            )
+        )
+        self.B = nn.Parameter(B)
+        self.C = nn.Parameter(C)
+        self.D = nn.Parameter(torch.ones(self.d_model, device=self.device))
+
+    def forward(self, hidden_states):
+        """
+        hidden_states: (B, L, D)
+        Returns: same shape as hidden_states
+        """
+        A_real = -torch.exp(self.A_real_log.float())
+        A_imag = self.A_imag.float()
+        A = A_real + 1j * A_imag
+        x = rearrange(hidden_states, "b l d -> b d l")
+        dt = self.log_dt.exp()[None, :, None].repeat(x.shape[0], 1, x.shape[2])
+        assert self.activation in ["silu", "swish"]
+        y = selective_scan_fn(
+            x,
+            dt,
+            A,
+            self.B,
+            self.C,
+            self.D,
+            z=None,
+            delta_softplus=True,
+            return_last_state=False,
+        )
+        return rearrange(y, "b d l -> b l d")
+
+
 class MambaRecurrence(nn.Module):
     def __init__(
         self,
         d_model,
         d_state=16,
-        c_dependent=True,
         dt_rank="auto",
         dt_min=0.001,
         dt_max=0.1,
@@ -72,13 +160,10 @@ class MambaRecurrence(nn.Module):
         ).contiguous()
         A_log = torch.log(A)  # Keep A_log in fp32
         self.A_log = nn.Parameter(A_log)
-        self.c_dependent = c_dependent
-        if not self.c_dependent:
-            self.C = nn.Parameter(
-                torch.randn(
-                    self.d_state,
-                )
-            )
+
+        # D "skip" parameter
+        self.D = nn.Parameter(torch.ones(self.d_model, device=device))  # Keep in fp32
+        self.D._no_weight_decay = True
 
         if device is None:
             if torch.cuda.is_available():
@@ -103,13 +188,7 @@ class MambaRecurrence(nn.Module):
         dt = self.dt_proj.weight @ dt.t()
         dt = rearrange(dt, "d (b l) -> b d l", l=seqlen)
         B = rearrange(B, "(b l) dstate -> b dstate l", l=seqlen).contiguous()
-        if self.c_dependent:
-            C = rearrange(C, "(b l) dstate -> b dstate l", l=seqlen).contiguous()
-        else:
-            C = self.C[None, :, None].repeat(batch, 1, seqlen)
-        D = torch.zeros(
-            self.d_model,
-        ).to(self.device)
+        C = rearrange(C, "(b l) dstate -> b dstate l", l=seqlen).contiguous()
         assert self.activation in ["silu", "swish"]
         y = selective_scan_fn(
             x,
@@ -117,7 +196,7 @@ class MambaRecurrence(nn.Module):
             A,
             B,
             C,
-            D,
+            self.D.float(),
             z=None,
             delta_bias=self.dt_proj.bias.float(),
             delta_softplus=True,
@@ -133,7 +212,6 @@ class SSM(torch.nn.Module):
         output_dim,
         hidden_dim,
         state_dim,
-        C_dependent,
         depth,
         model_name,
         nonlinear,
@@ -142,28 +220,42 @@ class SSM(torch.nn.Module):
         self.linear = torch.nn.Linear(input_dim, hidden_dim)
         self.depth = depth
         self.nonlinear = nonlinear
-        if model_name == "mamba":
-            self.ssm1 = MambaRecurrence(hidden_dim, state_dim, C_dependent)
+        self.activation = nn.GELU()
+        if model_name == "Mamba":
+            self.ssm1 = MambaRecurrence(hidden_dim, state_dim)
             if self.depth == 2:
-                self.ssm2 = MambaRecurrence(hidden_dim, state_dim, C_dependent)
-        elif model_name == "s5":
+                self.ssm2 = MambaRecurrence(hidden_dim, state_dim)
+        elif model_name == "S5":
             self.ssm1 = S5(hidden_dim, state_dim)
             if self.depth == 2:
                 self.ssm2 = S5(hidden_dim, state_dim)
+        elif model_name == "S4":
+            self.ssm1 = S4Recurrence(hidden_dim, state_dim)
+            if self.depth == 2:
+                self.ssm2 = S4Recurrence(hidden_dim, state_dim)
         else:
             raise ValueError("Invalid model name")
         self.linear_mix1 = torch.nn.Linear(hidden_dim, hidden_dim)
+        self.linear_mix2 = torch.nn.Linear(hidden_dim, hidden_dim)
         self.linear_out = torch.nn.Linear(hidden_dim, output_dim)
 
     def forward(self, x):
         x = self.linear(x)
+        y = x
         x = self.ssm1(x)
+        if self.nonlinear:
+            x = self.activation(x)
+        x = self.linear_mix1(x)
+        x = x + y
         if self.depth == 2:
-            if self.nonlinear:
-                x = torch.relu(x)
-            x = self.linear_mix1(x)
+            y = x
             x = self.ssm2(x)
-        x = x[:, -1, :]
+            if self.nonlinear:
+                x = self.activation(x)
+            x = self.linear_mix2(x)
+            x = x + y
+
+        x = x.mean(dim=1)
         x = self.linear_out(x)
         return x
 
@@ -171,10 +263,10 @@ class SSM(torch.nn.Module):
 class ToyDataset(torch.utils.data.Dataset):
     def __init__(self, train, num):
         super().__init__()
-        numpy_data = np.load(f"data/data_{num}.npy")
+        numpy_data = np.load(f"data_dir/data_{num}.npy")
         data = torch.tensor(numpy_data, dtype=torch.float32)
         N = data.shape[0]
-        numpy_labels = np.load(f"data/labels_{num}.npy")
+        numpy_labels = np.load(f"data_dir/labels_{num}.npy")
         labels = torch.tensor(numpy_labels, dtype=torch.float32)
         if train:
             self.data = data[: int(0.8 * N)]
@@ -199,82 +291,82 @@ if __name__ == "__main__":
     state_dim = 256
     output_dim = 1
     lr = 1e-4
-    for input_dim in [2, 3]:
-        for model_name_C_dependence in [
-            ("mamba", True),
-            ("mamba", False),
-            ("s5", False),
-        ]:
-            model_name, C_dependent = model_name_C_dependence
-            for depth_nonlinear in [(2, True), (2, False), (1, False)]:
-                depth, nonlinear = depth_nonlinear
-                train_dataset = ToyDataset(train=True, num=input_dim)
-                val_dataset = ToyDataset(train=False, num=input_dim)
-                dataloader = torch.utils.data.DataLoader(
-                    train_dataset, batch_size=batch, shuffle=True
-                )
-                val_dataloader = torch.utils.data.DataLoader(
-                    val_dataset, batch_size=batch, shuffle=True
-                )
-                model = SSM(
-                    input_dim,
-                    output_dim,
-                    hidden_dim,
-                    state_dim,
-                    C_dependent,
-                    depth,
-                    model_name,
-                    nonlinear,
-                ).to("cuda")
-                optimizer = torch.optim.Adam(model.parameters(), lr=lr)
+    for run in range(5):
+        for input_dim in [2, 3]:
+            for model_name in ["S4", "S5", "Mamba"]:
+                for depth_nonlinear in [(2, True), (2, False), (1, False)]:
+                    depth, nonlinear = depth_nonlinear
+                    train_dataset = ToyDataset(train=True, num=input_dim)
+                    val_dataset = ToyDataset(train=False, num=input_dim)
+                    dataloader = torch.utils.data.DataLoader(
+                        train_dataset, batch_size=batch, shuffle=True
+                    )
+                    val_dataloader = torch.utils.data.DataLoader(
+                        val_dataset, batch_size=batch, shuffle=True
+                    )
+                    model = SSM(
+                        input_dim,
+                        output_dim,
+                        hidden_dim,
+                        state_dim,
+                        depth,
+                        model_name,
+                        nonlinear,
+                    ).to("cuda")
+                    optimizer = torch.optim.Adam(model.parameters(), lr=lr)
 
-                running_loss = 0.0
-                all_rmse = []
-                steps = []
-                step = 0
-                for _ in range(400):
-                    for X, y in dataloader:
-                        optimizer.zero_grad()
+                    running_loss = 0.0
+                    all_rmse = []
+                    steps = []
+                    step = 0
+                    for _ in range(5):
+                        for X, y in dataloader:
+                            optimizer.zero_grad()
 
-                        X = X.to("cuda")
-                        y = y.to("cuda")
-                        y_hat = model(X)
-                        loss = torch.nn.functional.mse_loss(y_hat, y)
-                        running_loss += loss.item()
-                        loss.backward()
-                        optimizer.step()
+                            X = X.to("cuda")
+                            y = y.to("cuda")
+                            y_hat = model(X)
+                            loss = torch.nn.functional.mse_loss(y_hat, y)
+                            running_loss += loss.item()
+                            loss.backward()
+                            optimizer.step()
 
-                        if step % 10000 == 0:
+                            if step % 5000 == 0:
 
-                            total_mse = 0.0
-                            model.eval()
-                            for X, y in val_dataloader:
-                                X = X.to("cuda")
-                                y = y.to("cuda")
-                                y_hat = model(X)
-                                mse = torch.nn.functional.mse_loss(y_hat, y)
-                                total_mse += mse.item()
-                            running_loss = (
-                                running_loss * 10000 if step == 0 else running_loss
-                            )
-                            print(
-                                f"Step: {step}, Loss: {running_loss / 10000}, "
-                                f"RMSE: {(total_mse / len(val_dataloader)) ** 0.5}"
-                            )
-                            all_rmse.append((total_mse / len(val_dataloader)) ** 0.5)
-                            steps.append(step)
-                            running_loss = 0.0
-                            model.train()
+                                total_mse = 0.0
+                                model.eval()
+                                with torch.no_grad():
+                                    for X, y in val_dataloader:
+                                        X = X.to("cuda")
+                                        y = y.to("cuda")
+                                        y_hat = model(X)
+                                        mse = torch.nn.functional.mse_loss(y_hat, y)
+                                        total_mse += mse.item()
+                                running_loss = (
+                                    running_loss * 10000 if step == 0 else running_loss
+                                )
+                                print(
+                                    f"Step: {step}, Loss: {running_loss / 10000}, "
+                                    f"RMSE: {(total_mse / len(val_dataloader)) ** 0.5}"
+                                )
+                                all_rmse.append(
+                                    (total_mse / len(val_dataloader)) ** 0.5
+                                )
+                                steps.append(step)
+                                running_loss = 0.0
+                                model.train()
 
-                        step += 1
+                            step += 1
 
-                steps = np.array(steps)
-                all_rmse = np.array(all_rmse)
-                np.save(
-                    f"outputs/steps_100_{model_name}_{C_dependent}_{nonlinear}_{depth}_{lr}_{hidden_dim}_{input_dim}.npy",
-                    steps,
-                )
-                np.save(
-                    f"outputs/rmse_100_{model_name}_{C_dependent}_{nonlinear}_{depth}_{lr}_{hidden_dim}_{input_dim}.npy",
-                    all_rmse,
-                )
+                    steps = np.array(steps)
+                    all_rmse = np.array(all_rmse)
+                    if not os.path.isdir("outputs"):
+                        os.mkdir("outputs")
+                    np.save(
+                        f"outputs/steps_100_{model_name}_{nonlinear}_{depth}_{lr}_{hidden_dim}_{input_dim}_run_{run}.npy",
+                        steps,
+                    )
+                    np.save(
+                        f"outputs/rmse_100_{model_name}_{nonlinear}_{depth}_{lr}_{hidden_dim}_{input_dim}_run_{run}.npy",
+                        all_rmse,
+                    )
