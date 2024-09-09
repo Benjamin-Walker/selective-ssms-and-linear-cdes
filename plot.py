@@ -27,7 +27,7 @@ for i, dim in enumerate([2, 3]):
     rmse_lcde_list = []
     for run in range(5):
         rmse_lcde_list.append(
-            np.load(f"outputs/lin_cde_mse_{dim}_run_{run}.npy") ** 0.5
+            np.load(f"outputs_toy/lin_cde_mse_{dim}_run_{run}.npy") ** 0.5
         )
     marker_index = 0
     color_index = 0
@@ -40,13 +40,12 @@ for i, dim in enumerate([2, 3]):
             for nonlinear in nonlinear_choices:
                 rmse_list = []
                 steps_list = []
-                # Loop through outputs to outputs4 to collect RMSE data
                 for run in range(5):
                     rmse = np.load(
-                        f"outputs/rmse_100_{model_name}_{nonlinear}_{depth}_0.0001_256_{dim}_run_{run}.npy"
+                        f"outputs_toy/rmse_100_{model_name}_{nonlinear}_{depth}_0.0001_256_{dim}_run_{run}.npy"
                     )
                     steps = np.load(
-                        f"outputs/steps_100_{model_name}_{nonlinear}_{depth}_0.0001_256_{dim}_run_{run}.npy"
+                        f"outputs_toy/steps_100_{model_name}_{nonlinear}_{depth}_0.0001_256_{dim}_run_{run}.npy"
                     )
                     rmse_list.append(rmse)
                     steps_list.append(steps)

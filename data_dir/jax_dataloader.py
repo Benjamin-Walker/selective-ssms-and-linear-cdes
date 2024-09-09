@@ -1,6 +1,7 @@
 import jax.numpy as jnp
 import jax.random as jr
 import numpy as np
+import pandas as pd
 
 
 class InMemoryDataloader:
@@ -58,6 +59,32 @@ class ToyDataloader(InMemoryDataloader):
         train_y = labels[: int(0.8 * N)]
         test_x = data[int(0.8 * N) :]
         test_y = labels[int(0.8 * N) :]
+
+        super().__init__(
+            train_x.shape[0],
+            test_x.shape[0],
+            train_x,
+            train_y,
+            test_x,
+            test_y,
+        )
+
+
+class A5Dataloader(InMemoryDataloader):
+    def __init__(self, length, train_split, key):
+        df = pd.read_csv(f"data_dir/illusion/A5={length}.csv")
+        input_array = df["input"].str.split(" ", expand=True).astype(int).to_numpy()
+        target_array = df["target"].str.split(" ", expand=True).astype(int).to_numpy()
+        data = jnp.array(input_array)
+        labels = jnp.array(target_array)
+        N = data.shape[0]
+        shuffle_idx = jr.permutation(key, jnp.arange(N), independent=True)
+        data = data[shuffle_idx]
+        labels = labels[shuffle_idx]
+        train_x = data[: int(train_split * N)]
+        train_y = labels[: int(train_split * N)]
+        test_x = data[int(train_split * N) :]
+        test_y = labels[int(train_split * N) :]
 
         super().__init__(
             train_x.shape[0],
