@@ -40,7 +40,7 @@ Experimental results can be plotted by running `plot.py'.
 ## Python Environments
 
 The linear CDE and dataset generation are implemented using Jax, Diffrax, and Signax, as these libraries are currently
-supported, unlike their PyTorch counterparts. The state-space models are implemented using PyTorch, as the selective SSM
+supported, unlike their PyTorch counterparts. The state-space models are implemented using PyTorch, as the selective SequenceModel
 layer is implemented in PyTorch.
 
 It is possible to install cuda versions of Jax and Pytorch in the same environment using cuda 11.8. However,
