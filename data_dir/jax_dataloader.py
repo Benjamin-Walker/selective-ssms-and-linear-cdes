@@ -1,3 +1,31 @@
+"""
+This module provides data loaders for in-memory datasets, specifically designed for toy
+datasets and the A5 dataset used in experiments.
+
+Classes:
+    - InMemoryDataloader: A base class for creating data loaders from in-memory
+        datasets, supporting batching, shuffling, and looping over data for training
+        and validation.
+    - ToyDataloader: Inherits from InMemoryDataloader to load and preprocess toy
+        datasets from NumPy files, splitting them into training and validation sets.
+    - A5Dataloader: Inherits from InMemoryDataloader to load and preprocess the A5
+        dataset from CSV files, supporting variable sequence lengths and
+        train-validation splits.
+
+Usage:
+    - Instantiate ToyDataloader or A5Dataloader with the required parameters.
+    - Use the `train_loop` and `val_loop` methods to iterate over the training and
+    validation data
+      in batches, with options for shuffling and looping over epochs.
+
+Notes:
+    - The ToyDataloader expects data files in the directory "data_dir/toy_data" with
+        filenames "data_{num}.npy" and "labels_{num}.npy".
+    - The A5Dataloader expects CSV files in the directory "data_dir/illusion" with
+        filenames formatted as "A5={length}.csv".
+    - The `key` parameter is used for random shuffling in JAX to ensure reproducibility.
+"""
+
 import jax.numpy as jnp
 import jax.random as jr
 import numpy as np
@@ -50,9 +78,9 @@ class InMemoryDataloader:
 
 class ToyDataloader(InMemoryDataloader):
     def __init__(self, num):
-        with open(f"data_dir/data_{num}.npy", "rb") as f:
+        with open(f"data_dir/toy_data/data_{num}.npy", "rb") as f:
             data = jnp.array(np.load(f))
-        with open(f"data_dir/labels_{num}.npy", "rb") as f:
+        with open(f"data_dir/toy_data/labels_{num}.npy", "rb") as f:
             labels = jnp.array(np.load(f))
         N = data.shape[0]
         train_x = data[: int(0.8 * N)]

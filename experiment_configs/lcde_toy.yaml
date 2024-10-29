@@ -1,0 +1,5 @@
+runs: 5
+hidden_dim: 256
+output_dim: 1
+batch_size: 4000
+input_dims: [2, 3]

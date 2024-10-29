@@ -1,3 +1,30 @@
+"""
+This module provides implementations and utilities for running experiments with Linear
+Controlled Differential Equations (CDEs) using JAX and Equinox.
+
+It includes classes and functions for:
+
+- Defining embedding layers for discrete inputs.
+- Implementing Linear CDE models.
+- Training models on the toy dataset and the A5 dataset.
+- Utility functions for solving CDEs, extracting features, and training models.
+
+Classes:
+    - Embedding: Embedding layer for mapping discrete indices to dense vectors.
+    - LinearCDE: Implements a Linear CDE model.
+    - A5LinearCDE: Sequence-to-sequence model for the A5 dataset using a Linear CDE.
+
+Functions:
+    - adaptive_cde_solve: Approximates a CDE adaptively using the Tsit5 ODE solver.
+    - scan_cde_solve: Approximates a CDE using Euler discretisation.
+    - obtain_features_from_model: Extracts features and labels from a model using
+        batched data.
+    - train_linear: Trains a linear regression model on features extracted from a model.
+    - train_model: Trains a model using batched data and stochastic gradient descent.
+    - run_lcde_toy_experiment: Runs the toy experiment with a Linear CDE model.
+    - run_lcde_A5_experiment: Runs the A5 experiment with a Linear CDE model.
+"""
+
 import os
 import time
 
@@ -18,7 +45,7 @@ class Embedding(eqx.Module):
     Embedding layer for mapping discrete indices to dense vectors.
 
     Args:
-        num_embeddings (int): Number of unique embeddings (e.g., vocabulary sise).
+        num_embeddings (int): Number of unique embeddings (vocabulary sise).
         embedding_dim (int): Dimensionality of each embedding vector.
         key (jax.random.PRNGKey): PRNG key for initialising weights.
 
@@ -208,10 +235,12 @@ class A5LinearCDE(eqx.Module):
     """
 
     embedding: Embedding
+    hidden_dim: int
     LCDE: LinearCDE
     norm: eqx.nn.LayerNorm
     drop: eqx.nn.Dropout
-    linear: eqx.nn.Linear
+    linear_mix: eqx.nn.Linear
+    linear_out: eqx.nn.Linear
     output_dim: int
 
     def __init__(self, hidden_dim, input_dim, output_dim, *, key):
@@ -227,15 +256,21 @@ class A5LinearCDE(eqx.Module):
         )
         self.norm = eqx.nn.LayerNorm(hidden_dim)
         self.drop = eqx.nn.Dropout(p=0.1)
-        self.linear = eqx.nn.Linear(hidden_dim, output_dim, key=key)
+        self.linear_mix = eqx.nn.Linear(hidden_dim, hidden_dim, key=key)
+        self.linear_out = eqx.nn.Linear(hidden_dim, output_dim, key=key)
         self.output_dim = output_dim
 
     def __call__(self, X, enable_dropout, key):
+        drop1, drop2, key = jr.split(key, 3)
         X = jax.vmap(self.embedding)(X)
+        residual = X
         ys = self.LCDE(X)
+        ys = self.drop(ys, inference=not enable_dropout, key=drop1)
+        ys = jax.vmap(lambda x: jax.nn.relu(self.linear_mix(x)))(ys)
+        ys = self.drop(ys, inference=not enable_dropout, key=drop2)
+        ys = ys + residual
         ys = jax.vmap(self.norm)(ys)
-        ys = self.drop(ys, inference=not enable_dropout, key=key)
-        return jax.vmap(lambda x: jax.nn.softmax(self.linear(x)))(ys)
+        return jax.vmap(lambda x: jax.nn.softmax(self.linear_out(x)))(ys)
 
 
 def obtain_features_from_model(model, dataloader, num_samples, output_dim):
@@ -367,8 +402,9 @@ def train_model(
         Prints training loss, training accuracy, validation accuracy, and
         elapsed time at each `print_steps` interval.
     """
+    params = eqx.filter(model, eqx.is_inexact_array)
     optimizer = optax.adamw(learning_rate, weight_decay=0.01)
-    opt_state = optimizer.init(eqx.filter(model, eqx.is_array))
+    opt_state = optimizer.init(params)
 
     @eqx.filter_value_and_grad
     def loss_fn(model, X, y, keys):
@@ -379,7 +415,8 @@ def train_model(
     @eqx.filter_jit
     def train_step(model, opt_state, X, y, keys):
         loss, grads = loss_fn(model, X, y, keys)
-        updates, opt_state = optimizer.update(grads, opt_state, model)
+        params = eqx.filter(model, eqx.is_inexact_array)
+        updates, opt_state = optimizer.update(grads, opt_state, params)
         model = eqx.apply_updates(model, updates)
         return model, opt_state, loss
 
@@ -474,17 +511,13 @@ def run_lcde_toy_experiment(runs, input_dims, hidden_dim, output_dim, batch_size
 
     key = jr.PRNGKey(seed)
 
-    if not os.path.isdir("outputs_toy"):
-        os.mkdir("outputs_toy")
+    if not os.path.isdir("results/outputs_toy"):
+        os.mkdir("results/outputs_toy")
 
     for run in range(runs):
         model_key, train_key, key = jr.split(key, 3)
         for input_dim in input_dims:
-            omega_dim = input_dim + 1
-            xi_dim = input_dim + 1
-            model = LinearCDE(
-                hidden_dim, input_dim, omega_dim, xi_dim, output_dim, key=model_key
-            )
+            model = LinearCDE(hidden_dim, input_dim, output_dim, key=model_key)
             dataset = ToyDataloader(num=input_dim)
             mse = train_linear(
                 model,
@@ -496,7 +529,7 @@ def run_lcde_toy_experiment(runs, input_dims, hidden_dim, output_dim, batch_size
                 key=train_key,
             )
             mse = np.array(mse)
-            np.save(f"outputs_toy/lin_cde_mse_{input_dim}_run_{run}.npy", mse)
+            np.save(f"results/outputs_toy/lin_cde_mse_{input_dim}_run_{run}.npy", mse)
             print(f"Data dim: {input_dim}, MSE: {mse}")
 
 
@@ -545,19 +578,14 @@ def run_lcde_A5_experiment(
 
     key = jr.PRNGKey(seed)
 
-    if not os.path.isdir("outputs_A5"):
-        os.mkdir("outputs_A5")
+    if not os.path.isdir("results/outputs_A5"):
+        os.mkdir("results/outputs_A5")
 
     model_key, train_key, length_2_data_key, data_key, key = jr.split(key, 5)
 
-    omega_dim = hidden_dim + 1
-    xi_dim = hidden_dim + 1
-
     for length in lengths:
         print(f"Length: {length}")
-        model = A5LinearCDE(
-            hidden_dim, input_dim, omega_dim, xi_dim, output_dim, key=model_key
-        )
+        model = A5LinearCDE(hidden_dim, input_dim, output_dim, key=model_key)
         dataset_length2 = A5Dataloader(length=2, train_split=1.0, key=length_2_data_key)
         dataset = A5Dataloader(length=length, train_split=train_split, key=data_key)
         _, steps, val_accs = train_model(
@@ -570,5 +598,5 @@ def run_lcde_A5_experiment(
             batch_size=batch_size,
             key=train_key,
         )
-        np.save(f"outputs_A5/linear_cde_length_{length}_steps.npy", steps)
-        np.save(f"outputs_A5/linear_cde_length_{length}_val_accs.npy", val_accs)
+        np.save(f"results/outputs_A5/linear_cde_length_{length}_steps.npy", steps)
+        np.save(f"results/outputs_A5/linear_cde_length_{length}_val_accs.npy", val_accs)
