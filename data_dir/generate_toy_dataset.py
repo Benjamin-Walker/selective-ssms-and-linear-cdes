@@ -1,3 +1,21 @@
+"""
+Generates synthetic data of random walks in 2D and 3D, computes their path signatures,
+and saves both the data and computed labels to files for further use.
+
+This script performs the following steps:
+- Generates random walk data for 2D and 3D cases.
+- Computes the signatures of these random walks up to a specified depth.
+- Extracts specific components from the signatures to serve as labels.
+- Normalizes both the data and labels.
+- Saves the generated data and labels into `.npy` files in the "data_dir/toy_data"
+    directory.
+
+Note:
+- The script uses a fixed random seed for reproducibility.
+"""
+
+import os
+
 import jax
 import jax.numpy as jnp
 import jax.random as jr
@@ -28,7 +46,10 @@ for dim in [2, 3]:
     data = np.array(data)
     labels = np.array(labels)
 
-    with open(f"data/data_{dim}.npy", "wb") as f:
+    if not os.path.exists("data_dir/toy_data"):
+        os.makedirs("data_dir/toy_data")
+
+    with open(f"data_dir/toy_data/data_{dim}.npy", "wb") as f:
         np.save(f, data)
-    with open(f"data/labels_{dim}.npy", "wb") as f:
+    with open(f"data_dir/toy_data/labels_{dim}.npy", "wb") as f:
         np.save(f, labels)
