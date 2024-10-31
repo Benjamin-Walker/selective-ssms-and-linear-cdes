@@ -96,7 +96,7 @@ and `data_dir/toy_data/labels_n.npy` where `n` is the number of dimensions.
 ## The A5 Benchmark
 
 The A5 benchmark was introduced in ["The Illusion of State in State-Space Models"](https://arxiv.org/abs/2404.08819) by Merrill et al. The dataset tests models
-on their state tracking ability. Each path in the dataset is a random sequence of elements of the group $A_5$, the even 
+on their state tracking ability. Each path in the dataset is a random sequence of elements from the group $A_5$, the even 
 permutations of five elements. The label is the cumulative product of the elements in the path. The benchmark is split into a number of different
 tasks by the length of the path, ranging from $3$ to $20$. The dataset can be downloaded in csv format from their [github repository](https://github.com/jopetty/word-problem). 
 
