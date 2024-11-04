@@ -209,8 +209,8 @@ pre-commit install
 ```angular2html
 conda create -n pytorch_mamba python=3.11
 conda activate pytorch_mamba
-conda install pytorch=2.2 torchvision torchaudio pytorch-cuda=12.1 -c pytorch -c nvidia
-conda install packaging pyyaml -c conda-forge
+conda install pytorch=2.5 torchvision torchaudio pytorch-cuda=12.4 -c pytorch -c nvidia
+conda install packaging pyyaml pandas -c conda-forge
 pip install causal-conv1d>=1.2.0 mamba-ssm s5-pytorch einops
 ```
 
