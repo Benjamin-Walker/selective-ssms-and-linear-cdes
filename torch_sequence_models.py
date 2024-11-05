@@ -715,13 +715,13 @@ def run_sm_toy_experiment(
                     all_rmse = np.array(all_rmse)
 
                     np.save(
-                        f"results/outputs_toy/steps_100_full_{model_name}_{nonlinear}"
+                        f"results/outputs_toy/steps_100_{model_name}_{nonlinear}"
                         f"_{depth}_{learning_rate}_{hidden_dim}_{input_dim}"
                         f"_run_{run}.npy",
                         steps,
                     )
                     np.save(
-                        f"results/outputs_toy/rmse_100_full_{model_name}_{nonlinear}"
+                        f"results/outputs_toy/rmse_100_{model_name}_{nonlinear}"
                         f"_{depth}_{learning_rate}_{hidden_dim}_{input_dim}"
                         f"_run_{run}.npy",
                         all_rmse,
