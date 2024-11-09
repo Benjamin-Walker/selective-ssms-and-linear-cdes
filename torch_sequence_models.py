@@ -427,10 +427,11 @@ class SequenceModel(nn.Module):
         self.nonlinear = nonlinear
         if activation == "GLU":
             self.activation = nn.GLU()
-        elif activation == "ReLU":
-            self.activation = nn.ReLU()
+        elif activation == "GELU":
+            self.activation = nn.GELU()
         else:
             raise ValueError("Invalid activation function")
+        self.act_name = activation
 
         self.ssms = nn.ModuleList()
         self.linear_mixes = nn.ModuleList()
@@ -480,9 +481,14 @@ class SequenceModel(nn.Module):
             x = ssm(x)
             if self.dropout is not None:
                 x = self.dropout(x)
-            x = linear_mix(x)
-            if self.nonlinear:
-                x = self.activation(x)
+            if self.act_name == "GELU":
+                if self.nonlinear:
+                    x = self.activation(x)
+                x = linear_mix(x)
+            if self.act_name == "GLU":
+                x = linear_mix(x)
+                if self.nonlinear:
+                    x = self.activation(x)
             if self.dropout is not None:
                 x = self.dropout(x)
             x = x + residual
@@ -490,9 +496,9 @@ class SequenceModel(nn.Module):
                 x = self.layernorms[i](x)
             residual = x
 
-        x = self.linear_out(x)
         if not self.continuous_output:
             x = x.mean(dim=1)
+        x = self.linear_out(x)
         return x
 
 
@@ -662,7 +668,7 @@ def run_sm_toy_experiment(
                         depth,
                         model_name,
                         nonlinear,
-                        activation="ReLU",
+                        activation="GELU",
                     ).to(device)
                     optimizer = torch.optim.Adam(model.parameters(), lr=learning_rate)
 
