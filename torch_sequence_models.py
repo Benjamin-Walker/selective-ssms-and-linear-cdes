@@ -24,7 +24,6 @@ import torch
 import torch.nn as nn
 from einops import rearrange, repeat
 from mamba_ssm.ops.selective_scan_interface import selective_scan_fn
-from s5 import S5
 
 
 class Embedding(nn.Module):
@@ -440,8 +439,6 @@ class SequenceModel(nn.Module):
 
         if model_name == "Mamba":
             sequence_layer = MambaRecurrence
-        elif model_name == "S5":
-            sequence_layer = S5
         elif model_name == "S4":
             sequence_layer = S4Recurrence
         elif model_name == "RNN":
@@ -481,14 +478,9 @@ class SequenceModel(nn.Module):
             x = ssm(x)
             if self.dropout is not None:
                 x = self.dropout(x)
-            if self.act_name == "GELU":
-                if self.nonlinear:
-                    x = self.activation(x)
-                x = linear_mix(x)
-            if self.act_name == "GLU":
-                x = linear_mix(x)
-                if self.nonlinear:
-                    x = self.activation(x)
+            x = linear_mix(x)
+            if self.nonlinear:
+                x = self.activation(x)
             if self.dropout is not None:
                 x = self.dropout(x)
             x = x + residual

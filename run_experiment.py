@@ -40,6 +40,18 @@ def load_config(config_file):
     return config
 
 
+def str2bool(value):
+    """Convert string to boolean."""
+    if isinstance(value, bool):
+        return value
+    if value.lower() in ("true", "yes", "1"):
+        return True
+    elif value.lower() in ("false", "no", "0"):
+        return False
+    else:
+        raise argparse.ArgumentTypeError("Boolean value expected.")
+
+
 def parse_arguments():
     """Parse command line arguments."""
     parser = argparse.ArgumentParser(
@@ -52,6 +64,35 @@ def parse_arguments():
         required=True,
         choices=["LCDE", "SequenceModel"],
         help="Model type. Choose between 'LCDE' and 'SequenceModel'.",
+    )
+    parser.add_argument(
+        "-n",
+        "--name",
+        type=str,
+        choices=["Transformer", "Mamba", "RNN", "S4"],
+    )
+    parser.add_argument(
+        "-l",
+        "--length",
+        type=int,
+        choices=[3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 14, 16, 18, 20],
+    )
+    parser.add_argument(
+        "-d",
+        "--depth",
+        type=int,
+        choices=[1, 2, 3, 4],
+    )
+    parser.add_argument(
+        "-i",
+        "--input_dim",
+        type=int,
+        choices=[2, 3],
+    )
+    parser.add_argument(
+        "-nl",
+        "--nonlinear",
+        type=str2bool,
     )
     parser.add_argument(
         "-e",
@@ -102,4 +143,13 @@ if __name__ == "__main__":
             raise ValueError("Invalid experiment type!")
 
     config = load_config(config_file)
+    config = load_config(config_file)
+    if args.name:
+        config["model_names"] = [args.name]
+    if args.depth:
+        config["depth_nonlinears"] = [[args.depth, args.nonlinear]]
+    if args.length:
+        config["lengths"] = [args.length]
+    if args.input_dim:
+        config["input_dims"] = [args.input_dim]
     run_fn(**config, seed=seed)
